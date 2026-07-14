@@ -1,0 +1,82 @@
+# ===========================================================
+# MT5 AUTONOMOUS TRADING SYSTEM - CONFIGURATION
+# ===========================================================
+
+mt5:
+  path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
+  # login, password, server are loaded from .env file
+  timeout_seconds: 30
+  reconnect_attempts: 5
+  reconnect_delay_seconds: 5
+
+symbol:
+  name: "XAUUSD"
+  digit: 2
+  point: 0.01
+  contract_size: 100.0
+  spread_max: 50.0
+
+frame:
+  ath_caution_percent: 5.0
+  sideway_range_percent: 2.0
+  sideway_min_bars: 20
+  important_zone_step: 50.0
+
+cycle:
+  lookback_bars: 100
+  early_threshold: 30.0
+  late_threshold: 70.0
+  exhaustion_rsi_period: 14
+
+trend:
+  d1_weight: 1.0
+  h4_weight: 1.0
+  h1_weight: 0.5
+  m15_weight: 0.5
+  min_alignment_score: 3.0
+
+price_action:
+  pin_bar_body_ratio: 0.3
+  pin_bar_wick_ratio: 0.5
+  engulfing_min_body: 0.5
+  false_breakout_bars: 3
+
+risk:
+  risk_per_trade_percent: 1.0
+  max_risk_percent: 2.0
+  max_daily_loss_percent: 5.0
+  max_open_positions: 3
+  max_consecutive_losses: 3
+  min_rr: 2.0
+  default_lot: 0.01
+  max_lot: 10.0
+
+trade:
+  break_even_enabled: true
+  break_even_trigger_rr: 1.5
+  trailing_stop_enabled: true
+  trailing_stop_trigger_rr: 2.0
+  trailing_stop_distance_atr: 1.5
+  partial_close_enabled: true
+  partial_close_percent: 50.0
+  partial_close_at_tp1: true
+  magic_number: 20260712
+  slippage: 20
+
+backtest:
+  initial_balance: 10000.0
+  commission_per_lot: 7.0
+  monte_carlo_runs: 1000
+  walk_forward_splits: 5
+
+database:
+  path: "data/trading.db"
+  backtest_path: "data/backtest.db"
+
+notification:
+  line_notify_token: ""
+  line_notify_enabled: false
+
+logging:
+  level: "INFO"
+  file: "logs/trader.log"

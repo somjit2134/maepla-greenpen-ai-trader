@@ -1,0 +1,16 @@
+{
+  "is_running": true,
+  "started_at": "2026-07-09T14:26:54.208554",
+  "last_cycle_at": "2026-07-09T14:34:54.961621",
+  "last_result": {
+    "status": "ok",
+    "decision": "WAIT",
+    "action": "skipped_no_plan",
+    "score": 5,
+    "price": 4107.01
+  },
+  "monitor_interval_seconds": 60,
+  "symbol": "XAUUSD",
+  "updated_at": "2026-07-09T14:34:54.961633",
+  "pid": 31680
+}

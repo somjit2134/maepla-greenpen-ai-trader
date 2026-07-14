@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  maepla-trader:
+    build: .
+    container_name: maepla-green-pen-ai
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - TZ=Asia/Bangkok
+    command: ["/monitor", "--simulate", "--interval", "60", "--notify"]
+    restart: unless-stopped
+
+  maepla-backtest:
+    build: .
+    container_name: maepla-backtest
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: ["/backtest", "--simulate", "--periods", "1000"]
+    profiles:
+      - backtest
