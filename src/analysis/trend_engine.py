@@ -6,9 +6,6 @@ Analyzes trend alignment across timeframes:
   H4  -> Confirm market structure
   H1  -> Identify trading opportunity
   M15 -> Execute entry
-
-BUY:  D1 bullish + H4 bullish + H1 bullish + M15 bullish
-SELL: D1 bearish + H4 bearish + H1 bearish + M15 bearish
 """
 import logging
 from dataclasses import dataclass, field
@@ -17,7 +14,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from config import get_config
+from src.config import get_config
 
 logger = logging.getLogger("trend_engine")
 

@@ -1,6 +1,6 @@
 """
 MT5 Autonomous Trading System - Risk Management Engine
-========================================================
+=======================================================
 Rules:
   - Risk per trade: 1% of account
   - Max daily loss: 5%
@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Optional
 
-from config import get_config
+from src.config import get_config
 
 logger = logging.getLogger("risk_manager")
 
@@ -39,7 +39,6 @@ class RiskManager:
         self._last_reset_date: date = date.today()
 
     def _check_auto_reset(self):
-        """Reset daily counters automatically at midnight."""
         today = date.today()
         if today != self._last_reset_date:
             logger.info(f"New day detected, resetting daily counters (was {self._daily_loss:.2f} loss, {self._consecutive_losses} consecutive losses)")
@@ -76,7 +75,6 @@ class RiskManager:
         entry: float,
         stop_loss: float,
     ) -> float:
-        """Calculate the actual risk percentage after lot size clamping."""
         if balance <= 0:
             return 0.0
         sl_distance = abs(entry - stop_loss)
@@ -84,7 +82,6 @@ class RiskManager:
         return round((actual_risk / balance) * 100, 2)
 
     def validate_lot_size(self, lot_size: float, symbol_info: Optional[dict] = None) -> tuple[float, list]:
-        """Validate lot size against broker constraints. Returns (adjusted_lot, warnings)."""
         warnings = []
         if symbol_info is None:
             return lot_size, warnings

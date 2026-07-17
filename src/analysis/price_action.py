@@ -1,63 +1,56 @@
-from dataclasses import dataclass
+"""
+MT5 Autonomous Trading System - Price Action Signal Engine
+===========================================================
+Detects candlestick patterns on completed candles only:
+  1. Pin Bar - long rejection wick, small body
+  2. Engulfing Pattern - bullish/bearish engulfing
+  3. Rejection Candle - strong rejection from important frame
+  4. False Breakout - break level then fail to continue
+  5. Consecutive candles - momentum confirmation
+"""
+import logging
+from dataclasses import dataclass, field
 from typing import Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+from src.config import get_config
+
+logger = logging.getLogger("price_action")
 
 
 @dataclass
-class PatternResult:
-    pattern_name: str = ""
-    detected: bool = False
-    direction: str = ""  # "BULLISH", "BEARISH"
+class Pattern:
+    name: str = ""
+    direction: str = ""
     strength: int = 0
     candle_idx: int = -1
     detail: str = ""
 
 
 @dataclass
-class PAnalysis:
-    patterns: list = None
+class PAResult:
+    patterns: list = field(default_factory=list)
     bullish_confirmed: bool = False
     bearish_confirmed: bool = False
+    bullish_count: int = 0
+    bearish_count: int = 0
     overall: str = "NEUTRAL"
+    signal_grade: str = "NO_TRADE"
     detail: str = ""
 
 
 class PriceActionDetector:
+    """Price Action Signal Engine - detect patterns on completed candles."""
+
     def __init__(self):
-        self.patterns = []
+        self.cfg = get_config()
 
-    def _is_bullish_engulfing(self, open_p, close_p, prev_open, prev_close):
-        return close_p > open_p and prev_close < prev_open and close_p > prev_open and open_p < prev_close
+    def detect(self, df: pd.DataFrame) -> PAResult:
+        result = PAResult(patterns=[])
 
-    def _is_bearish_engulfing(self, open_p, close_p, prev_open, prev_close):
-        return close_p < open_p and prev_close > prev_open and close_p < prev_open and open_p > prev_close
-
-    def _is_pin_bar(self, open_p, high, low, close_p, body_ratio=0.3, wick_ratio=0.5):
-        body = abs(close_p - open_p)
-        total = high - low
-        if total == 0:
-            return None, 0
-
-        lower_wick = min(open_p, close_p) - low
-        upper_wick = high - max(open_p, close_p)
-
-        if body / total <= body_ratio:
-            if lower_wick / total >= wick_ratio and lower_wick > upper_wick * 2:
-                return "BULLISH", 3
-            elif upper_wick / total >= wick_ratio and upper_wick > lower_wick * 2:
-                return "BEARISH", 3
-        return None, 0
-
-    def _is_inside_bar(self, open_p, close_p, prev_open, prev_close, prev_high, prev_low):
-        return high <= prev_high and low >= prev_low
-
-    high = low = None
-
-    def detect(self, df: pd.DataFrame) -> PAnalysis:
-        result = PAnalysis(patterns=[])
-        if df.empty or len(df) < 3:
+        if df is None or df.empty or len(df) < 5:
             return result
 
         opens = df["open"].values
@@ -66,147 +59,54 @@ class PriceActionDetector:
         closes = df["close"].values
 
         last = len(closes) - 1
-        patterns_detected = []
-
         bullish_count = 0
         bearish_count = 0
 
         for i in range(max(1, last - 5), last + 1):
-            if i < 1:
-                continue
-
-            res = self._is_pin_bar(
-                opens[i], highs[i], lows[i], closes[i]
-            )
-            if res and res[0]:
-                pat = PatternResult(
-                    pattern_name="Pin Bar" if res[0] == "BULLISH" else "Shooting Star",
-                    detected=True,
-                    direction=res[0],
-                    strength=res[1],
-                    candle_idx=i,
-                    detail=f"{res[0]} pin bar at candle {i}",
-                )
-                patterns_detected.append(pat)
-                if res[0] == "BULLISH":
-                    bullish_count += res[1]
+            pat = self._detect_pin_bar(opens[i], highs[i], lows[i], closes[i], i)
+            if pat:
+                result.patterns.append(pat)
+                if pat.direction == "BULLISH":
+                    bullish_count += pat.strength
                 else:
-                    bearish_count += res[1]
-
-            engulf_res = self._is_bullish_engulfing(
-                opens[i], closes[i], opens[i - 1], closes[i - 1]
-            )
-            if engulf_res:
-                pat = PatternResult(
-                    pattern_name="Bullish Engulfing",
-                    detected=True,
-                    direction="BULLISH",
-                    strength=3,
-                    candle_idx=i,
-                    detail=f"Bullish engulfing at candle {i}",
-                )
-                patterns_detected.append(pat)
-                bullish_count += 3
+                    bearish_count += pat.strength
                 continue
 
-            engulf_res = self._is_bearish_engulfing(
-                opens[i], closes[i], opens[i - 1], closes[i - 1]
-            )
-            if engulf_res:
-                pat = PatternResult(
-                    pattern_name="Bearish Engulfing",
-                    detected=True,
-                    direction="BEARISH",
-                    strength=3,
-                    candle_idx=i,
-                    detail=f"Bearish engulfing at candle {i}",
-                )
-                patterns_detected.append(pat)
-                bearish_count += 3
+            pat = self._detect_engulfing(opens, closes, i)
+            if pat:
+                result.patterns.append(pat)
+                if pat.direction == "BULLISH":
+                    bullish_count += pat.strength
+                else:
+                    bearish_count += pat.strength
+                continue
 
-        last_candle_body = abs(closes[last] - opens[last])
-        last_candle_range = highs[last] - lows[last]
+            pat = self._detect_rejection(opens, highs, lows, closes, i)
+            if pat:
+                result.patterns.append(pat)
+                if pat.direction == "BULLISH":
+                    bullish_count += pat.strength
+                else:
+                    bearish_count += pat.strength
 
-        if not patterns_detected:
-            if last_candle_range > 0:
-                lower_wick = min(opens[last], closes[last]) - lows[last]
-                upper_wick = highs[last] - max(opens[last], closes[last])
+        pat = self._detect_false_breakout(highs, lows, closes, last)
+        if pat:
+            result.patterns.append(pat)
+            if pat.direction == "BULLISH":
+                bullish_count += pat.strength
+            else:
+                bearish_count += pat.strength
 
-                if lower_wick > last_candle_body * 2 and lower_wick > upper_wick * 2:
-                    pat = PatternResult(
-                        pattern_name="Long Lower Wick",
-                        detected=True,
-                        direction="BULLISH",
-                        strength=2,
-                        candle_idx=last,
-                        detail="Long lower wick rejection",
-                    )
-                    patterns_detected.append(pat)
-                    bullish_count += 2
+        pat = self._detect_consecutive(opens, closes, last)
+        if pat:
+            result.patterns.append(pat)
+            if pat.direction == "BULLISH":
+                bullish_count += pat.strength
+            else:
+                bearish_count += pat.strength
 
-                if upper_wick > last_candle_body * 2 and upper_wick > lower_wick * 2:
-                    pat = PatternResult(
-                        pattern_name="Long Upper Wick",
-                        detected=True,
-                        direction="BEARISH",
-                        strength=2,
-                        candle_idx=last,
-                        detail="Long upper wick rejection",
-                    )
-                    patterns_detected.append(pat)
-                    bearish_count += 2
-
-            if closes[last] > opens[last] and closes[last] > closes[last - 1]:
-                if len(closes) > 2 and closes[last - 1] > closes[last - 2]:
-                    pat = PatternResult(
-                        pattern_name="Consecutive Bullish",
-                        detected=True,
-                        direction="BULLISH",
-                        strength=2,
-                        candle_idx=last,
-                        detail="Consecutive bullish candles",
-                    )
-                    patterns_detected.append(pat)
-                    bullish_count += 2
-
-            elif closes[last] < opens[last] and closes[last] < closes[last - 1]:
-                if len(closes) > 2 and closes[last - 1] < closes[last - 2]:
-                    pat = PatternResult(
-                        pattern_name="Consecutive Bearish",
-                        detected=True,
-                        direction="BEARISH",
-                        strength=2,
-                        candle_idx=last,
-                        detail="Consecutive bearish candles",
-                    )
-                    patterns_detected.append(pat)
-                    bearish_count += 2
-
-            if closes[last] > closes[last - 1] and lows[last] < lows[last - 1] and closes[last] > opens[last]:
-                pat = PatternResult(
-                    pattern_name="Bullish Rejection",
-                    detected=True,
-                    direction="BULLISH",
-                    strength=2,
-                    candle_idx=last,
-                    detail="Bullish rejection at support",
-                )
-                patterns_detected.append(pat)
-                bullish_count += 2
-
-            elif closes[last] < closes[last - 1] and highs[last] > highs[last - 1] and closes[last] < opens[last]:
-                pat = PatternResult(
-                    pattern_name="Bearish Rejection",
-                    detected=True,
-                    direction="BEARISH",
-                    strength=2,
-                    candle_idx=last,
-                    detail="Bearish rejection at resistance",
-                )
-                patterns_detected.append(pat)
-                bearish_count += 2
-
-        result.patterns = patterns_detected
+        result.bullish_count = bullish_count
+        result.bearish_count = bearish_count
         result.bullish_confirmed = bullish_count >= 3
         result.bearish_confirmed = bearish_count >= 3
 
@@ -215,19 +115,114 @@ class PriceActionDetector:
         elif result.bearish_confirmed and not result.bullish_confirmed:
             result.overall = "BEARISH"
         elif result.bullish_confirmed and result.bearish_confirmed:
-            if bullish_count > bearish_count:
-                result.overall = "BULLISH"
-            elif bearish_count > bullish_count:
-                result.overall = "BEARISH"
-            else:
-                result.overall = "NEUTRAL"
+            result.overall = "BULLISH" if bullish_count > bearish_count else "BEARISH"
         else:
             result.overall = "NEUTRAL"
 
-        if patterns_detected:
-            strongest = max(patterns_detected, key=lambda p: p.strength)
-            result.detail = f"Strongest: {strongest.pattern_name} ({strongest.direction})"
+        result.signal_grade = self._grade_signal(result)
+
+        if result.patterns:
+            strongest = max(result.patterns, key=lambda p: p.strength)
+            result.detail = f"Strongest: {strongest.name} ({strongest.direction})"
         else:
             result.detail = "No significant patterns"
 
+        logger.info(f"PA: {result.overall}, Grade: {result.signal_grade}, "
+                     f"Bull:{bullish_count}, Bear:{bearish_count}")
         return result
+
+    def _detect_pin_bar(self, o, h, l, c, idx) -> Optional[Pattern]:
+        body = abs(c - o)
+        total = h - l
+        if total == 0:
+            return None
+
+        lower_wick = min(o, c) - l
+        upper_wick = h - max(o, c)
+
+        if body / total <= self.cfg.price_action.pin_bar_body_ratio:
+            if lower_wick / total >= self.cfg.price_action.pin_bar_wick_ratio and lower_wick > upper_wick * 2:
+                return Pattern("Pin Bar", "BULLISH", 3, idx, "Bullish pin bar")
+            elif upper_wick / total >= self.cfg.price_action.pin_bar_wick_ratio and upper_wick > lower_wick * 2:
+                return Pattern("Shooting Star", "BEARISH", 3, idx, "Bearish pin bar")
+        return None
+
+    def _detect_engulfing(self, opens, closes, idx) -> Optional[Pattern]:
+        if idx < 1:
+            return None
+
+        o, c = opens[idx], closes[idx]
+        po, pc = opens[idx - 1], closes[idx - 1]
+
+        body = abs(c - o)
+        prev_body = abs(pc - po)
+        if prev_body == 0:
+            return None
+
+        if body / prev_body < self.cfg.price_action.engulfing_min_body:
+            return None
+
+        if c > o and pc < o and c > po:
+            return Pattern("Bullish Engulfing", "BULLISH", 3, idx, "Bullish engulfing")
+        elif c < o and pc > o and c < po:
+            return Pattern("Bearish Engulfing", "BEARISH", 3, idx, "Bearish engulfing")
+        return None
+
+    def _detect_rejection(self, opens, highs, lows, closes, idx) -> Optional[Pattern]:
+        o, h, l, c = opens[idx], highs[idx], lows[idx], closes[idx]
+        total = h - l
+        if total == 0:
+            return None
+
+        body = abs(c - o)
+        lower_wick = min(o, c) - l
+        upper_wick = h - max(o, c)
+
+        if lower_wick > body * 2 and lower_wick > upper_wick * 1.5:
+            return Pattern("Bullish Rejection", "BULLISH", 2, idx, "Long lower wick rejection")
+        elif upper_wick > body * 2 and upper_wick > lower_wick * 1.5:
+            return Pattern("Bearish Rejection", "BEARISH", 2, idx, "Long upper wick rejection")
+        return None
+
+    def _detect_false_breakout(self, highs, lows, closes, idx) -> Optional[Pattern]:
+        if idx < self.cfg.price_action.false_breakout_bars:
+            return None
+
+        window = self.cfg.price_action.false_breakout_bars
+        prev_high = np.max(highs[idx - window:idx])
+        prev_low = np.min(lows[idx - window:idx])
+
+        current_close = closes[idx]
+        current_high = highs[idx]
+        current_low = lows[idx]
+
+        if current_high > prev_high and current_close < prev_high:
+            return Pattern("False Breakout", "BEARISH", 3, idx, "False break above resistance")
+        elif current_low < prev_low and current_close > prev_low:
+            return Pattern("False Breakout", "BULLISH", 3, idx, "False break below support")
+        return None
+
+    def _detect_consecutive(self, opens, closes, idx) -> Optional[Pattern]:
+        if idx < 2:
+            return None
+
+        bullish = all(closes[i] > opens[i] for i in range(idx - 2, idx + 1))
+        bearish = all(closes[i] < opens[i] for i in range(idx - 2, idx + 1))
+
+        if bullish and closes[idx] > closes[idx - 1] > closes[idx - 2]:
+            return Pattern("Consecutive Bullish", "BULLISH", 2, idx, "3 consecutive bullish candles")
+        elif bearish and closes[idx] < closes[idx - 1] < closes[idx - 2]:
+            return Pattern("Consecutive Bearish", "BEARISH", 2, idx, "3 consecutive bearish candles")
+        return None
+
+    def _grade_signal(self, result: PAResult) -> str:
+        confirmed = result.bullish_confirmed or result.bearish_confirmed
+        count = max(result.bullish_count, result.bearish_count)
+
+        if confirmed and count >= 6:
+            return "A"
+        elif confirmed and count >= 3:
+            return "B"
+        elif count >= 2:
+            return "C"
+        return "NO_TRADE"

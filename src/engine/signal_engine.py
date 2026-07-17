@@ -1,23 +1,18 @@
 """
 MT5 Autonomous Trading System - Entry Decision Engine
-=======================================================
+======================================================
 Combines all engines to produce a trade signal:
   Frame + Cycle + Trend + Price Action -> Signal
-
-Trade only when:
-  Condition 1: Market Frame is valid
-  AND Condition 2: Price Action Signal confirmed
-  AND Condition 3: Cycle still has remaining movement
 """
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from config import get_config
-from frame_engine import FrameAnalyzer, FrameResult
-from cycle_engine import CycleAnalyzer, CycleResult
-from trend_engine import TrendAnalyzer, TrendResult
-from price_action import PriceActionDetector, PAResult
+from src.config import get_config
+from src.analysis.frame_engine import FrameAnalyzer, FrameResult
+from src.analysis.cycle_engine import CycleAnalyzer, CycleResult
+from src.analysis.trend_engine import TrendAnalyzer, TrendResult
+from src.analysis.price_action import PriceActionDetector, PAResult
 
 logger = logging.getLogger("signal_engine")
 

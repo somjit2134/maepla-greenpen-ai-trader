@@ -1,6 +1,6 @@
 """
 MT5 Autonomous Trading System - Trade Execution Engine
-========================================================
+=======================================================
 Executes and manages trades:
   - Place BUY/SELL orders
   - Break even management
@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from config import get_config
+from src.config import get_config
 
 logger = logging.getLogger("trade_executor")
 
@@ -39,7 +39,6 @@ class TradeExecutor:
         self.connector = connector
 
     def _check_spread(self, symbol: str) -> tuple[bool, float]:
-        """Check if current spread is within allowed max. Returns (ok, spread_pts)."""
         try:
             import MetaTrader5 as mt5
         except ImportError:

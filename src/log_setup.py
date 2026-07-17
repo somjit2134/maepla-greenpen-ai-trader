@@ -2,7 +2,7 @@ import logging
 import sys
 from pathlib import Path
 
-from src.config_loader import get_config
+from src.config import get_config
 
 
 def setup_logging() -> logging.Logger:

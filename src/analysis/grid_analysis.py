@@ -10,7 +10,7 @@ class GridLevel:
     level: float = 0.0
     distance: float = 0.0
     has_reaction: bool = False
-    reaction_type: str = ""  # "SUPPORT" or "RESISTANCE"
+    reaction_type: str = ""
     score: int = 0
 
 
@@ -40,7 +40,6 @@ class GridAnalyzer:
                 high = df["high"].values
                 low = df["low"].values
                 close = df["close"].values
-                touch_buffer = self.step * 0.3
 
                 for i in range(len(close)):
                     if low[i] <= lvl <= high[i]:

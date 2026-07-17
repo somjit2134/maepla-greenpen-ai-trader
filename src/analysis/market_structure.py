@@ -4,9 +4,7 @@ from typing import Optional
 import pandas as pd
 import numpy as np
 
-from src.log_setup import get_logger
-
-logger = get_logger()
+logger = __import__("logging").getLogger("market_structure")
 
 
 @dataclass
@@ -103,21 +101,6 @@ class MarketStructureDetector:
             structure.preference = "SELL"
             structure.detail = f"Lower highs: {lh}, Lower lows: {ll}"
         else:
-            if high[-1] > recent_highs[-2] if len(recent_highs) > 1 else False:
-                if low[-1] > recent_lows[-2] if len(recent_lows) > 1 else False:
-                    structure.condition = "BULLISH"
-                    structure.preference = "BUY"
-                    structure.detail = "Recent breakout up"
-                else:
-                    structure.detail = "No clear structure"
-            elif low[-1] < recent_lows[-2] if len(recent_lows) > 1 else False:
-                if high[-1] < recent_highs[-2] if len(recent_highs) > 1 else False:
-                    structure.condition = "BEARISH"
-                    structure.preference = "SELL"
-                    structure.detail = "Recent breakdown down"
-                else:
-                    structure.detail = "No clear structure"
-            else:
-                structure.detail = "Range / no clear structure"
+            structure.detail = "Range / no clear structure"
 
         return structure

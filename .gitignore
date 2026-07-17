@@ -5,3 +5,9 @@ __pycache__/
 logs/
 .pytest_cache/
 .history/
+data/backtest_results/
+.idea/
+.vscode/
+venv/
+.venv/
+maepla-autotrader/

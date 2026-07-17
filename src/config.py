@@ -32,6 +32,7 @@ class SymbolConfig:
     point: float = 0.01
     contract_size: float = 100.0
     spread_max: float = 50.0
+    at: float = 5603.0
 
 
 @dataclass
@@ -144,7 +145,7 @@ def load_config(path: Optional[str] = None) -> Config:
     load_dotenv()
 
     if path is None:
-        base = Path(__file__).parent
+        base = Path(__file__).parent.parent
         path = str(base / "config.yaml")
 
     cfg = Config()

@@ -1,13 +1,13 @@
 # ===========================================================
-# MT5 AUTONOMOUS TRADING SYSTEM - CONFIGURATION
+# MAE PLA GREEN PEN AI TRADER - CONFIGURATION
 # ===========================================================
 
 mt5:
   path: "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
-  # login, password, server are loaded from .env file
   timeout_seconds: 30
   reconnect_attempts: 5
   reconnect_delay_seconds: 5
+  # login, password, server are loaded from .env file
 
 symbol:
   name: "XAUUSD"
@@ -15,6 +15,7 @@ symbol:
   point: 0.01
   contract_size: 100.0
   spread_max: 50.0
+  at: 5603.0
 
 frame:
   ath_caution_percent: 5.0

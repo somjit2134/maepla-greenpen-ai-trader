@@ -1,110 +1,138 @@
-"""Tests for risk engine."""
-
 import pytest
+import sys
+import os
 
-from src.engine.risk_engine import RiskEngine
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.engine.risk_manager import RiskManager, RiskCheck
 
 
 @pytest.fixture
-def risk_engine():
-    return RiskEngine()
+def risk_manager():
+    return RiskManager()
 
 
-def test_position_size_calculation(risk_engine):
-    balance = 10000.0
-    entry = 4075.0
-    stop = 4060.0
+class TestRiskManager:
+    def test_position_size_calculation(self, risk_manager):
+        lot = risk_manager.calculate_position_size(10000, 2000, 1990)
+        assert lot > 0
+        assert lot <= 10.0
 
-    lot_size = risk_engine.calculate_position_size(balance, entry, stop, risk_percent=1.0)
-    assert lot_size > 0
-    assert lot_size <= 10.0
+    def test_position_size_zero_risk(self, risk_manager):
+        lot = risk_manager.calculate_position_size(10000, 4075, 4075, 1.0)
+        assert lot == 0.0
 
+    def test_rr_calculation(self, risk_manager):
+        rr = risk_manager.calculate_rr(entry=2000, stop_loss=1990, take_profit=2020)
+        assert rr == 2.0
 
-def test_position_size_zero_risk(risk_engine):
-    lot_size = risk_engine.calculate_position_size(10000, 4075, 4075, 1.0)
-    assert lot_size == 0.0
+    def test_rr_sell(self, risk_manager):
+        rr = risk_manager.calculate_rr(entry=2100, stop_loss=2120, take_profit=2050)
+        expected = 50 / 20
+        assert abs(rr - expected) < 0.01
 
+    def test_rr_zero_risk(self, risk_manager):
+        rr = risk_manager.calculate_rr(entry=2000, stop_loss=2000, take_profit=2020)
+        assert rr == 0.0
 
-def test_rr_calculation(risk_engine):
-    rr = risk_engine.calculate_rr(entry=4075, stop=4060, target=4100)
-    expected = 25 / 15
-    assert abs(rr - expected) < 0.01
+    def test_risk_check_pass(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=1990,
+            take_profit=2020,
+            balance=10000,
+            open_positions=0,
+        )
+        assert check.passed
+        assert check.risk_amount == 100.0
+        assert check.risk_percent == 1.0
 
+    def test_risk_check_low_rr(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=1990,
+            take_profit=2005,
+            balance=10000,
+        )
+        assert not check.passed
+        assert any("RR" in w for w in check.warnings)
 
-def test_rr_sell(risk_engine):
-    rr = risk_engine.calculate_rr(entry=4100, stop=4120, target=4050)
-    expected = 50 / 20
-    assert abs(rr - expected) < 0.01
+    def test_risk_check_invalid_levels(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=2010,
+            take_profit=2020,
+            balance=10000,
+        )
+        assert not check.passed
+        assert any("Invalid" in w for w in check.warnings)
 
+    def test_risk_check_max_positions(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=1990,
+            take_profit=2020,
+            balance=10000,
+            open_positions=3,
+        )
+        assert not check.passed
+        assert any("Max open" in w for w in check.warnings)
 
-def test_rr_zero_risk(risk_engine):
-    rr = risk_engine.calculate_rr(entry=4075, stop=4075, target=4100)
-    assert rr == 0.0
+    def test_risk_check_daily_loss(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=1990,
+            take_profit=2020,
+            balance=10000,
+            daily_loss=600.0,
+        )
+        assert not check.passed
+        assert any("Daily loss" in w for w in check.warnings)
 
+    def test_risk_check_consecutive_losses(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=1990,
+            take_profit=2020,
+            balance=10000,
+            consecutive_losses=3,
+        )
+        assert not check.passed
+        assert any("Consecutive" in w for w in check.warnings)
 
-def test_risk_check_pass(risk_engine):
-    check = risk_engine.check_trade(
-        account_balance=10000,
-        entry_price=4075,
-        stop_loss=4060,
-        take_profit=4100,
-        direction="BUY",
-        risk_percent=1.0,
-    )
-    assert check.passed or not check.passed
-    assert check.risk_amount == 100.0
-    assert check.risk_percent == 1.0
+    def test_risk_check_spread(self, risk_manager):
+        check = risk_manager.validate_trade(
+            direction="BUY",
+            entry=2000,
+            stop_loss=1990,
+            take_profit=2020,
+            balance=10000,
+            current_spread=100.0,
+        )
+        assert not check.passed
+        assert any("Spread" in w for w in check.warnings)
 
+    def test_record_trade_result(self, risk_manager):
+        risk_manager.record_trade_result(-100)
+        assert risk_manager._consecutive_losses == 1
+        assert risk_manager._daily_loss == 100.0
 
-def test_risk_check_exceeds_max(risk_engine):
-    check = risk_engine.check_trade(
-        account_balance=10000,
-        entry_price=4075,
-        stop_loss=4060,
-        take_profit=4100,
-        direction="BUY",
-        risk_percent=5.0,
-    )
-    assert not check.passed
-    assert any("exceeds" in w.lower() for w in check.warnings)
+        risk_manager.record_trade_result(-50)
+        assert risk_manager._consecutive_losses == 2
+        assert risk_manager._daily_loss == 150.0
 
+        risk_manager.record_trade_result(200)
+        assert risk_manager._consecutive_losses == 0
 
-def test_risk_check_daily_loss(risk_engine):
-    check = risk_engine.check_trade(
-        account_balance=10000,
-        entry_price=4075,
-        stop_loss=4060,
-        take_profit=4100,
-        direction="BUY",
-        risk_percent=1.0,
-        daily_loss=6.0,
-    )
-    assert not check.passed
-    assert any("daily" in w.lower() for w in check.warnings)
-
-
-def test_trade_plan_validation(risk_engine):
-    valid_plan = {
-        "direction": "BUY",
-        "entry": 4075,
-        "stop_loss": 4060,
-        "take_profit_1": 4100,
-    }
-    check = risk_engine.validate_trade_plan(valid_plan, 10000)
-    assert check.passed or not check.passed
-
-
-def test_trade_plan_bad_direction(risk_engine):
-    bad_plan = {"direction": "HOLD", "entry": 4075, "stop_loss": 4060, "take_profit_1": 4100}
-    check = risk_engine.validate_trade_plan(bad_plan, 10000)
-    assert not check.passed
-
-
-def test_trade_plan_empty(risk_engine):
-    check = risk_engine.validate_trade_plan({}, 10000)
-    assert not check.passed
-
-
-def test_trade_plan_none(risk_engine):
-    check = risk_engine.validate_trade_plan(None, 10000)
-    assert not check.passed
+    def test_get_status(self, risk_manager):
+        status = risk_manager.get_status()
+        assert "daily_loss" in status
+        assert "consecutive_losses" in status
+        assert "max_daily_loss" in status
+        assert "max_consecutive" in status

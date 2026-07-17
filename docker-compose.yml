@@ -5,22 +5,31 @@ services:
     build: .
     container_name: maepla-green-pen-ai
     volumes:
-      - ./config:/app/config:ro
+      - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
       - ./logs:/app/logs
     environment:
       - PYTHONPATH=/app
       - TZ=Asia/Bangkok
-    command: ["/monitor", "--simulate", "--interval", "60", "--notify"]
+    command: ["/monitor", "--simulate", "--interval", "60"]
     restart: unless-stopped
 
   maepla-backtest:
     build: .
     container_name: maepla-backtest
     volumes:
-      - ./config:/app/config:ro
+      - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data
       - ./logs:/app/logs
     command: ["/backtest", "--simulate", "--periods", "1000"]
     profiles:
       - backtest
+
+  maepla-test:
+    build: .
+    container_name: maepla-test
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["-m", "pytest", "tests/", "-v"]
+    profiles:
+      - test

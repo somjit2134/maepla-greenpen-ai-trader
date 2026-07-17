@@ -1,6 +1,6 @@
 """
 MT5 Autonomous Trading System - Market Frame Engine
-=====================================================
+====================================================
 Analyzes market context before every trade:
   1. ATH Frame - distance from All-Time High, breakout/rejection
   2. 1000 Point Cycle - beginning/middle/end of major swings
@@ -14,7 +14,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from config import get_config
+from src.config import get_config
 
 logger = logging.getLogger("frame_engine")
 
@@ -103,7 +103,6 @@ class FrameAnalyzer:
         return result
 
     def _analyze_ath(self, data: dict[str, pd.DataFrame], price: float) -> ATHFrame:
-        """ATH Frame - detect distance from ATH, breakout, rejection."""
         d1 = data.get("D1")
         if d1 is None or d1.empty:
             return ATHFrame(current_price=price, detail="No D1 data")
@@ -137,7 +136,6 @@ class FrameAnalyzer:
         )
 
     def _analyze_cycle(self, data: dict[str, pd.DataFrame], price: float) -> CycleFrame:
-        """1000 Point Cycle Frame - measure position in major swing."""
         h4 = data.get("H4")
         d1 = data.get("D1")
         df = d1 if d1 is not None and not d1.empty else h4
@@ -175,7 +173,6 @@ class FrameAnalyzer:
         )
 
     def _analyze_sideway(self, data: dict[str, pd.DataFrame], price: float) -> SidewayFrame:
-        """Sideway Frame - detect consolidation areas on H4 for recent context."""
         h4 = data.get("H4")
         d1 = data.get("D1")
         df = h4 if h4 is not None and not h4.empty else d1
@@ -225,7 +222,6 @@ class FrameAnalyzer:
         )
 
     def _find_important_zones(self, price: float) -> list:
-        """Important Price Zones - psychological levels at round numbers."""
         step = self.cfg.frame.important_zone_step
         zones = []
 

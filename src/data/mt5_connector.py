@@ -1,59 +1,91 @@
+"""
+MT5 Autonomous Trading System - MetaTrader 5 Connection
+=========================================================
+Handles connection, data retrieval, auto-reconnect, and simulation mode.
+"""
 import time
+import logging
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 
-from src.config_loader import get_config
-from src.log_setup import get_logger
+from src.config import get_config
 
-logger = get_logger()
+logger = logging.getLogger("mt5_connector")
 
 
 class MT5Connector:
-    """Handles MetaTrader 5 connection and data retrieval."""
+    """Handles MetaTrader 5 connection with auto-reconnect."""
 
     def __init__(self):
         self.cfg = get_config()
-        self.initialized = False
         self.mt5 = None
+        self.connected = False
 
     def connect(self) -> bool:
         try:
             import MetaTrader5 as mt5
             self.mt5 = mt5
         except ImportError:
-            logger.error("MetaTrader5 package not installed. pip install MetaTrader5")
+            logger.error("MetaTrader5 not installed. Run: pip install MetaTrader5")
             return False
 
-        if not self.mt5.initialize(
-            path=self.cfg.mt5.path,
-            login=self.cfg.mt5.login if self.cfg.mt5.login else None,
-            password=self.cfg.mt5.password if self.cfg.mt5.password else None,
-            server=self.cfg.mt5.server if self.cfg.mt5.server else None,
-            timeout=self.cfg.mt5.timeout_seconds * 1000,
-        ):
+        kwargs = {"path": self.cfg.mt5.path, "timeout": self.cfg.mt5.timeout_seconds * 1000}
+        if self.cfg.mt5.login:
+            kwargs["login"] = self.cfg.mt5.login
+            kwargs["password"] = self.cfg.mt5.password or ""
+            kwargs["server"] = self.cfg.mt5.server or ""
+
+        if not self.mt5.initialize(**kwargs):
             err = self.mt5.last_error()
             logger.error(f"MT5 initialize failed: {err}")
             return False
 
-        self.initialized = True
+        self.connected = True
         logger.info("Connected to MetaTrader 5")
         return True
 
+    def reconnect(self) -> bool:
+        for attempt in range(self.cfg.mt5.reconnect_attempts):
+            logger.warning(f"Reconnect attempt {attempt + 1}/{self.cfg.mt5.reconnect_attempts}")
+            self.disconnect()
+            time.sleep(self.cfg.mt5.reconnect_delay_seconds)
+            if self.connect():
+                logger.info("Reconnected successfully")
+                return True
+        logger.error("Failed to reconnect after all attempts")
+        return False
+
     def disconnect(self):
-        if self.mt5 and self.initialized:
-            self.mt5.shutdown()
-            self.initialized = False
-            logger.info("Disconnected from MetaTrader 5")
+        if self.mt5:
+            try:
+                self.mt5.shutdown()
+            except Exception:
+                pass
+        self.connected = False
+        logger.info("Disconnected from MetaTrader 5")
 
     def is_connected(self) -> bool:
-        return self.initialized and (self.mt5 is not None)
+        if not self.connected or self.mt5 is None:
+            return False
+        try:
+            info = self.mt5.terminal_info()
+            return info is not None and info.connected
+        except Exception:
+            self.connected = False
+            return False
 
-    def get_rates(
-        self,
-        timeframe: str,
-        count: int = 500,
-    ) -> pd.DataFrame:
+    def ensure_connected(self) -> bool:
+        if self.is_connected():
+            return True
+        logger.warning("MT5 disconnected, attempting reconnect...")
+        return self.reconnect()
+
+    def get_rates(self, timeframe: str, count: int = 500) -> pd.DataFrame:
+        if not self.ensure_connected():
+            return pd.DataFrame()
+
         tf_map = {
             "M1": self.mt5.TIMEFRAME_M1,
             "M5": self.mt5.TIMEFRAME_M5,
@@ -70,12 +102,9 @@ class MT5Connector:
             logger.error(f"Unknown timeframe: {timeframe}")
             return pd.DataFrame()
 
-        rates = self.mt5.copy_rates_from_pos(
-            self.cfg.symbol.name, mt5_tf, 0, count
-        )
-        if rates is None:
-            err = self.mt5.last_error()
-            logger.error(f"Failed to get rates for {timeframe}: {err}")
+        rates = self.mt5.copy_rates_from_pos(self.cfg.symbol.name, mt5_tf, 0, count)
+        if rates is None or len(rates) == 0:
+            logger.error(f"Failed to get {timeframe} data: {self.mt5.last_error()}")
             return pd.DataFrame()
 
         df = pd.DataFrame(rates)
@@ -83,26 +112,57 @@ class MT5Connector:
         return df
 
     def get_current_price(self) -> tuple[float, float]:
+        """Returns (bid, ask)."""
+        if not self.ensure_connected():
+            return 0.0, 0.0
+
         tick = self.mt5.symbol_info_tick(self.cfg.symbol.name)
         if tick is None:
             return 0.0, 0.0
         return tick.bid, tick.ask
 
+    def get_spread(self) -> float:
+        bid, ask = self.get_current_price()
+        return (ask - bid) / self.cfg.symbol.point if bid > 0 else 0.0
+
     def get_account_info(self) -> Optional[dict]:
+        if not self.ensure_connected():
+            return None
+
         info = self.mt5.account_info()
         if info is None:
             return None
         return {
+            "login": info.login,
             "balance": info.balance,
             "equity": info.equity,
             "margin": info.margin,
             "margin_free": info.margin_free,
             "profit": info.profit,
             "leverage": info.leverage,
+            "server": info.server,
+        }
+
+    def get_symbol_info(self) -> Optional[dict]:
+        if not self.ensure_connected():
+            return None
+
+        info = self.mt5.symbol_info(self.cfg.symbol.name)
+        if info is None:
+            return None
+        return {
+            "name": info.name,
+            "point": info.point,
+            "digits": info.digits,
+            "spread": info.spread,
+            "trade_mode": info.trade_mode,
+            "volume_min": info.volume_min,
+            "volume_max": info.volume_max,
+            "volume_step": info.volume_step,
         }
 
     def get_all_timeframes(self, count: int = 500) -> dict[str, pd.DataFrame]:
-        tfs = ["M1", "M5", "M15", "H1", "H4", "D1", "W1", "MN1"]
+        tfs = ["M15", "H1", "H4", "D1", "W1", "MN1"]
         result = {}
         for tf in tfs:
             df = self.get_rates(tf, count)
@@ -110,31 +170,91 @@ class MT5Connector:
                 result[tf] = df
         return result
 
+    def get_positions(self) -> list[dict]:
+        if not self.ensure_connected():
+            return []
+
+        positions = self.mt5.positions_get(symbol=self.cfg.symbol.name)
+        if not positions:
+            return []
+
+        return [
+            {
+                "ticket": p.ticket,
+                "type": "BUY" if p.type == 0 else "SELL",
+                "volume": p.volume,
+                "price_open": p.price_open,
+                "price_current": p.price_current,
+                "sl": p.sl,
+                "tp": p.tp,
+                "profit": p.profit,
+                "swap": p.swap,
+                "magic": p.magic,
+                "comment": p.comment,
+                "time": p.time,
+            }
+            for p in positions
+        ]
+
+    def get_history_orders(self, days: int = 30) -> list[dict]:
+        if not self.ensure_connected():
+            return []
+
+        from datetime import datetime, timedelta
+        date_from = datetime.now() - timedelta(days=days)
+        date_to = datetime.now()
+
+        deals = self.mt5.history_deals_get(date_from, date_to, group=f"*{self.cfg.symbol.name}*")
+        if not deals:
+            return []
+
+        return [
+            {
+                "ticket": d.ticket,
+                "order": d.order,
+                "position_id": d.position_id,
+                "time": d.time,
+                "type": d.type,
+                "entry": d.entry,
+                "volume": d.volume,
+                "price": d.price,
+                "profit": d.profit,
+                "swap": d.swap,
+                "commission": d.commission,
+                "comment": d.comment,
+                "magic": d.magic,
+            }
+            for d in deals
+        ]
+
 
 class SimulatedMT5Connector:
-    """Simulated connector for testing / demo mode when MT5 is not available."""
-
-    import numpy as np
+    """Simulated connector for testing/demo mode when MT5 is not available."""
 
     def __init__(self):
         self.cfg = get_config()
-        self.initialized = True
+        self.connected = True
         self._base_price = self.cfg.symbol.at * 0.73
 
     def connect(self) -> bool:
         logger.info("Using simulated MT5 connector (no live data)")
+        self.connected = True
         return True
 
     def disconnect(self):
-        pass
+        self.connected = False
 
     def is_connected(self) -> bool:
+        return self.connected
+
+    def ensure_connected(self) -> bool:
+        return self.connected
+
+    def reconnect(self) -> bool:
+        self.connected = True
         return True
 
     def get_rates(self, timeframe: str, count: int = 500) -> pd.DataFrame:
-        import numpy as np
-        import pandas as pd
-
         now = pd.Timestamp.now(tz=None)
         tf_minutes = {"M1": 1, "M5": 5, "M15": 15, "H1": 60, "H4": 240, "D1": 1440, "W1": 10080, "MN1": 43200}
         step = tf_minutes.get(timeframe, 60)
@@ -158,13 +278,42 @@ class SimulatedMT5Connector:
         return df
 
     def get_current_price(self) -> tuple[float, float]:
-        import numpy as np
         price = self._base_price + np.random.randn() * 3
         return price, price + 0.5
 
+    def get_spread(self) -> float:
+        return 25.0
+
     def get_account_info(self) -> dict:
-        return {"balance": 10000, "equity": 10000, "margin": 0, "margin_free": 10000, "profit": 0, "leverage": 100}
+        return {
+            "login": 0,
+            "balance": 10000,
+            "equity": 10000,
+            "margin": 0,
+            "margin_free": 10000,
+            "profit": 0,
+            "leverage": 100,
+            "server": "Simulated",
+        }
+
+    def get_symbol_info(self) -> dict:
+        return {
+            "name": self.cfg.symbol.name,
+            "point": self.cfg.symbol.point,
+            "digits": self.cfg.symbol.digit,
+            "spread": 25,
+            "trade_mode": 0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+        }
 
     def get_all_timeframes(self, count: int = 500) -> dict[str, pd.DataFrame]:
-        tfs = ["M1", "M5", "M15", "H1", "H4", "D1", "W1", "MN1"]
+        tfs = ["M15", "H1", "H4", "D1", "W1", "MN1"]
         return {tf: self.get_rates(tf, count) for tf in tfs}
+
+    def get_positions(self) -> list[dict]:
+        return []
+
+    def get_history_orders(self, days: int = 30) -> list[dict]:
+        return []

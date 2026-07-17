@@ -1,6 +1,6 @@
 """
 MT5 Autonomous Trading System - Cycle Analysis Engine
-=======================================================
+======================================================
 Measures price movement cycles:
   - Distance from previous swing
   - Remaining potential movement
@@ -14,7 +14,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from config import get_config
+from src.config import get_config
 
 logger = logging.getLogger("cycle_engine")
 

@@ -1,11 +1,7 @@
 """
 MT5 Autonomous Trading System - Trading Journal System
-========================================================
-Logs every trade with full context:
-  - Entry reasons (frame, signal, cycle, trend)
-  - Entry/exit prices, SL, TP
-  - Result, P/L, win rate, drawdown
-  - Performance reports
+=========================================================
+Logs every trade with full context in SQLite.
 """
 import sqlite3
 import json
@@ -16,7 +12,7 @@ from typing import Optional
 
 import numpy as np
 
-from config import get_config
+from src.config import get_config
 
 logger = logging.getLogger("journal")
 

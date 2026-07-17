@@ -5,14 +5,13 @@ import pandas as pd
 import numpy as np
 
 from src.analysis.market_structure import MarketStructureDetector
-from src.log_setup import get_logger
 
-logger = get_logger()
+logger = __import__("logging").getLogger("support_resistance")
 
 
 @dataclass
 class SRTier:
-    zone_type: str = ""  # "SUPPORT" or "RESISTANCE"
+    zone_type: str = ""
     zone_high: float = 0.0
     zone_low: float = 0.0
     mid: float = 0.0
