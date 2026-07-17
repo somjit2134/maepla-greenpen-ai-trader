@@ -58,12 +58,12 @@ class SignalEngine:
         buy_score, buy_reasons = self._score_direction("BUY", frame, cycle, trend, pa, bid, ask)
         sell_score, sell_reasons = self._score_direction("SELL", frame, cycle, trend, pa, bid, ask)
 
-        if buy_score > sell_score and buy_score >= 6:
+        if buy_score > sell_score and buy_score >= 8:
             direction = "BUY"
             score = buy_score
             reasons = buy_reasons
             entry, sl, tp1, tp2 = self._calculate_levels("BUY", mid, frame)
-        elif sell_score > buy_score and sell_score >= 6:
+        elif sell_score > buy_score and sell_score >= 8:
             direction = "SELL"
             score = sell_score
             reasons = sell_reasons
@@ -194,7 +194,9 @@ class SignalEngine:
         return 0.0
 
     def _calculate_levels(self, direction, price, frame: FrameResult):
-        max_sl_distance = self.cfg.symbol.point * 500
+        point = self.cfg.symbol.point
+        min_sl_distance = point * 500
+        min_stop_level = point * 100
 
         if direction == "BUY":
             entry = price
@@ -204,7 +206,9 @@ class SignalEngine:
                 if support_zones:
                     sl = min(sl, support_zones[0].level - 2)
 
-            sl = max(sl, entry - max_sl_distance)
+            sl = max(sl, entry - min_sl_distance)
+            if (entry - sl) < min_stop_level:
+                sl = entry - min_stop_level
             risk = entry - sl
             tp1 = entry + risk * 2
             tp2 = entry + risk * 3
@@ -221,7 +225,9 @@ class SignalEngine:
                 if resistance_zones:
                     sl = max(sl, resistance_zones[0].level + 2)
 
-            sl = min(sl, entry + max_sl_distance)
+            sl = min(sl, entry + min_sl_distance)
+            if (sl - entry) < min_stop_level:
+                sl = entry + min_stop_level
             risk = sl - entry
             tp1 = entry - risk * 2
             tp2 = entry - risk * 3
@@ -237,10 +243,10 @@ class SignalEngine:
             return "NO_TRADE"
         if score >= 9:
             return "A+"
-        elif score >= 7:
+        elif score >= 8:
             return "A"
-        elif score >= 6:
+        elif score >= 7:
             return "B+"
-        elif score >= 5:
+        elif score >= 6:
             return "B"
         return "NO_TRADE"

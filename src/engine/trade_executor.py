@@ -54,6 +54,36 @@ class TradeExecutor:
             return False, spread_pts
         return True, spread_pts
 
+    def _validate_stop_price(self, sl_tp: float, price: float, direction: str, label: str, min_distance: float, digits: int, point: float) -> float | None:
+        if sl_tp <= 0:
+            return None
+
+        validated = round(sl_tp, digits)
+
+        if direction == "BUY":
+            if label == "SL" and validated >= price:
+                return None
+            if label == "TP" and validated <= price:
+                return None
+            if label == "SL" and (price - validated) < min_distance:
+                validated = round(price - min_distance, digits)
+            if label == "TP" and (validated - price) < min_distance:
+                validated = round(price + min_distance, digits)
+        else:
+            if label == "SL" and validated <= price:
+                return None
+            if label == "TP" and validated >= price:
+                return None
+            if label == "SL" and (validated - price) < min_distance:
+                validated = round(price + min_distance, digits)
+            if label == "TP" and (price - validated) < min_distance:
+                validated = round(price - min_distance, digits)
+
+        if validated <= 0:
+            return None
+
+        return validated
+
     def place_order(
         self,
         direction: str,
@@ -86,6 +116,10 @@ class TradeExecutor:
                 message=f"Spread too high: {spread_pts:.0f} pts (max {self.cfg.symbol.spread_max:.0f})",
             )
 
+        stop_level = getattr(info, "trade_stops_level", 0)
+        digits = info.digits
+        point = info.point
+
         last_error_msg = ""
         for attempt in range(self._max_retries):
             tick = mt5.symbol_info_tick(symbol)
@@ -101,14 +135,25 @@ class TradeExecutor:
                 order_type = mt5.ORDER_TYPE_SELL
                 price = tick.bid
 
+            min_distance = max(stop_level, 10) * point
+
+            validated_sl = self._validate_stop_price(stop_loss, price, direction, "SL", min_distance, digits, point)
+            validated_tp = self._validate_stop_price(take_profit, price, direction, "TP", min_distance, digits, point)
+
+            if validated_sl is None or validated_tp is None:
+                return TradeResult(
+                    success=False,
+                    message=f"Invalid SL/TP levels: SL={stop_loss}, TP={take_profit} (min_distance={min_distance})",
+                )
+
             request = {
                 "action": mt5.TRADE_ACTION_DEAL,
                 "symbol": symbol,
                 "volume": lot_size,
                 "type": order_type,
                 "price": price,
-                "sl": stop_loss,
-                "tp": take_profit,
+                "sl": validated_sl,
+                "tp": validated_tp,
                 "deviation": self.cfg.trade.slippage,
                 "magic": self.cfg.trade.magic_number,
                 "comment": comment,
